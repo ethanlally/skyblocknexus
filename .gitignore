@@ -1,0 +1,30 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# IntelliJ IDEA and editors
+.idea/
+.vscode/
+*.iml
+
+# Java and build output
+.gradle/
+build/
+out/
+target/
+*.class
+
+# Node.js and frontend output
+node_modules/
+dist/
+coverage/
+.npm/
+
+# Logs, temporary files, and operating-system metadata
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+

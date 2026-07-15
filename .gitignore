@@ -7,6 +7,9 @@
 .idea/
 .vscode/
 *.iml
+.classpath
+.project
+.settings/
 
 # Java and build output
 .gradle/
@@ -14,17 +17,20 @@ build/
 out/
 target/
 *.class
+.mvn/wrapper/maven-wrapper.jar
 
 # Node.js and frontend output
 node_modules/
 dist/
+dist-ssr/
 coverage/
 .npm/
+*.local
 
 # Logs, temporary files, and operating-system metadata
 *.log
+*-debug.log*
 *.tmp
 *.swp
 .DS_Store
 Thumbs.db
-

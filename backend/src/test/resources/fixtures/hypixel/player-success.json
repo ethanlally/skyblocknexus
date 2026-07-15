@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "player": {
+    "uuid": "0123456789abcdef0123456789abcdef",
+    "displayname": "ExamplePlayer",
+    "firstLogin": 1609459200000,
+    "lastLogin": 1711929600000,
+    "stats": {}
+  }
+}

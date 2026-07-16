@@ -8,6 +8,11 @@ type Player = {
   lastLogin: number | null
 }
 
+type ApiError = {
+  message?: string
+  retryAfterSeconds?: number
+}
+
 function App() {
   const [uuid, setUuid] = useState('')
   const [player, setPlayer] = useState<Player | null>(null)
@@ -22,7 +27,17 @@ function App() {
 
     try {
       const response = await fetch(`/api/players/${uuid.trim()}`)
-      if (!response.ok) throw new Error('Could not find that player')
+      if (!response.ok) {
+        const apiError = await readApiError(response)
+        if (response.status === 429) {
+          const retryAfter = apiError?.retryAfterSeconds
+            ?? Number(response.headers.get('Retry-After'))
+          throw new Error(
+            `Hypixel's request limit has been reached. Try again in ${formatRetryDelay(retryAfter)}.`,
+          )
+        }
+        throw new Error(apiError?.message ?? 'Could not find that player')
+      }
       setPlayer(await response.json() as Player)
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Something went wrong')
@@ -70,6 +85,22 @@ function App() {
 
 function formatDate(timestamp: number | null) {
   return timestamp ? new Date(timestamp).toLocaleDateString() : 'Unknown'
+}
+
+async function readApiError(response: Response): Promise<ApiError | null> {
+  try {
+    return await response.json() as ApiError
+  } catch {
+    return null
+  }
+}
+
+function formatRetryDelay(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return 'about a minute'
+  if (seconds < 60) return `${Math.ceil(seconds)} seconds`
+
+  const minutes = Math.ceil(seconds / 60)
+  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
 }
 
 export default App

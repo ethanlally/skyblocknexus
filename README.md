@@ -30,3 +30,7 @@ pnpm dev
 ```
 
 The frontend will be available at `http://localhost:5173`.
+
+The backend tracks Hypixel's rate-limit response headers in memory. When the
+current request window is exhausted, it responds locally with HTTP 429 and a
+retry delay instead of sending another request to Hypixel.

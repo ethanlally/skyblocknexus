@@ -3,6 +3,8 @@ package com.ethanlally.skyblocknexus.hypixel;
 import com.ethanlally.skyblocknexus.player.PlayerSummary;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
@@ -12,17 +14,21 @@ public class HypixelClient {
 
     private final String apiKey;
     private final RestClient restClient;
+    private final HypixelRateLimiter rateLimiter;
 
     @Autowired
-    public HypixelClient(@Value("${hypixel.api-key:}") String apiKey) {
+    public HypixelClient(
+            @Value("${hypixel.api-key:}") String apiKey,
+            HypixelRateLimiter rateLimiter) {
         this(apiKey, RestClient.builder()
                 .baseUrl("https://api.hypixel.net")
-                .build());
+                .build(), rateLimiter);
     }
 
-    HypixelClient(String apiKey, RestClient restClient) {
+    HypixelClient(String apiKey, RestClient restClient, HypixelRateLimiter rateLimiter) {
         this.apiKey = apiKey;
         this.restClient = restClient;
+        this.rateLimiter = rateLimiter;
     }
 
     public PlayerSummary getPlayer(String uuid) {
@@ -30,20 +36,30 @@ public class HypixelClient {
             throw new IllegalStateException("HYPIXEL_API_KEY is not configured");
         }
 
-        JsonNode response = restClient.get()
+        rateLimiter.acquire();
+
+        ResponseEntity<JsonNode> response = restClient.get()
                 .uri(uriBuilder -> uriBuilder.path("/v2/player").queryParam("uuid", uuid).build())
                 .header("API-Key", apiKey)
                 .retrieve()
-                .body(JsonNode.class);
+                .onStatus(
+                        status -> status == HttpStatus.TOO_MANY_REQUESTS,
+                        (request, upstreamResponse) -> {
+                            throw rateLimiter.rejectedByUpstream(upstreamResponse.getHeaders());
+                        })
+                .toEntity(JsonNode.class);
 
-        JsonNode player = response == null ? null : response.get("player");
+        rateLimiter.update(response.getHeaders());
+
+        JsonNode body = response.getBody();
+        JsonNode player = body == null ? null : body.get("player");
         if (player == null || player.isNull()) {
             throw new IllegalArgumentException("Player not found");
         }
 
         return new PlayerSummary(
-                player.path("uuid").asText(uuid),
-                player.path("displayname").asText("Unknown"),
+                player.path("uuid").asString(uuid),
+                player.path("displayname").asString("Unknown"),
                 optionalLong(player, "firstLogin"),
                 optionalLong(player, "lastLogin"));
     }

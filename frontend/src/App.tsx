@@ -8,13 +8,18 @@ type Player = {
   lastLogin: number | null
 }
 
+type MinecraftPlayer = {
+  uuid: string
+  username: string
+}
+
 type ApiError = {
   message?: string
   retryAfterSeconds?: number
 }
 
 function App() {
-  const [uuid, setUuid] = useState('')
+  const [username, setUsername] = useState('')
   const [player, setPlayer] = useState<Player | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -26,7 +31,19 @@ function App() {
     setPlayer(null)
 
     try {
-      const response = await fetch(`/api/players/${uuid.trim()}`)
+      const minecraftResponse = await fetch(
+        `/api/minecraft/players/${encodeURIComponent(username.trim())}`,
+      )
+      if (!minecraftResponse.ok) {
+        throw new Error(
+          minecraftResponse.status === 404
+            ? 'Could not find that Minecraft username'
+            : 'Could not resolve that Minecraft username',
+        )
+      }
+
+      const minecraftPlayer = await minecraftResponse.json() as MinecraftPlayer
+      const response = await fetch(`/api/players/${minecraftPlayer.uuid}`)
       if (!response.ok) {
         const apiError = await readApiError(response)
         if (response.status === 429) {
@@ -52,13 +69,16 @@ function App() {
       <p className="intro">A small project for exploring Hypixel SkyBlock data.</p>
 
       <form onSubmit={findPlayer}>
-        <label htmlFor="uuid">Minecraft UUID</label>
+        <label htmlFor="username">Minecraft username</label>
         <div className="search-row">
           <input
-            id="uuid"
-            value={uuid}
-            onChange={(event) => setUuid(event.target.value)}
-            placeholder="Enter a dashed or undashed UUID"
+            id="username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="Enter a Minecraft username"
+            minLength={3}
+            maxLength={16}
+            pattern="[A-Za-z0-9_]+"
             required
           />
           <button type="submit" disabled={loading}>

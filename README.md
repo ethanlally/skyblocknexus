@@ -1,7 +1,7 @@
 # SkyBlock Nexus
 
 A personal project for exploring Hypixel SkyBlock data. The first version is a
-Spring Boot API and React page that can look up a player by Minecraft UUID.
+Spring Boot API and React page that can look up a player by Minecraft username.
 
 ## Setup
 

@@ -71,6 +71,38 @@ button:disabled {
   margin-top: 0;
 }
 
+.profiles {
+  margin-top: 24px;
+}
+
+.profiles h2 {
+  margin-bottom: 12px;
+}
+
+.profiles ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profiles li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid #d8dce1;
+  border-radius: 6px;
+}
+
+.profiles li span {
+  color: #5f6368;
+  font-size: 0.9rem;
+  text-align: right;
+}
+
 dl {
   margin-bottom: 0;
 }
@@ -95,5 +127,15 @@ dd {
 @media (max-width: 540px) {
   .search-row {
     flex-direction: column;
+  }
+
+  .profiles li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .profiles li span {
+    text-align: left;
   }
 }

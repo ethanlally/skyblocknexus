@@ -1,6 +1,8 @@
 package com.ethanlally.skyblocknexus.player;
 
 import com.ethanlally.skyblocknexus.hypixel.HypixelClient;
+import com.ethanlally.skyblocknexus.skyblock.SkyBlockProfileSummary;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,5 +22,10 @@ public class PlayerController {
     public PlayerSummary getPlayer(
             @PathVariable String uuid) {
         return hypixelClient.getPlayer(uuid);
+    }
+
+    @GetMapping("/{uuid}/profiles")
+    public List<SkyBlockProfileSummary> getProfiles(@PathVariable String uuid) {
+        return hypixelClient.getSkyBlockProfiles(uuid);
     }
 }

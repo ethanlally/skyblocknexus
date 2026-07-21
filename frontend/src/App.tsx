@@ -13,6 +13,13 @@ type MinecraftPlayer = {
   username: string
 }
 
+type SkyBlockProfile = {
+  profileId: string
+  name: string
+  selected: boolean
+  gameMode: string | null
+}
+
 type ApiError = {
   message?: string
   retryAfterSeconds?: number
@@ -21,6 +28,7 @@ type ApiError = {
 function App() {
   const [username, setUsername] = useState('')
   const [player, setPlayer] = useState<Player | null>(null)
+  const [profiles, setProfiles] = useState<SkyBlockProfile[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -29,6 +37,7 @@ function App() {
     setLoading(true)
     setError('')
     setPlayer(null)
+    setProfiles([])
 
     try {
       const minecraftResponse = await fetch(
@@ -43,19 +52,20 @@ function App() {
       }
 
       const minecraftPlayer = await minecraftResponse.json() as MinecraftPlayer
-      const response = await fetch(`/api/players/${minecraftPlayer.uuid}`)
-      if (!response.ok) {
-        const apiError = await readApiError(response)
-        if (response.status === 429) {
-          const retryAfter = apiError?.retryAfterSeconds
-            ?? Number(response.headers.get('Retry-After'))
-          throw new Error(
-            `Hypixel's request limit has been reached. Try again in ${formatRetryDelay(retryAfter)}.`,
-          )
-        }
-        throw new Error(apiError?.message ?? 'Could not find that player')
-      }
-      setPlayer(await response.json() as Player)
+      const playerResponse = await fetch(`/api/players/${minecraftPlayer.uuid}`)
+      const foundPlayer = await readHypixelResponse<Player>(
+        playerResponse,
+        'Could not find that player',
+      )
+
+      const profilesResponse = await fetch(`/api/players/${minecraftPlayer.uuid}/profiles`)
+      const foundProfiles = await readHypixelResponse<SkyBlockProfile[]>(
+        profilesResponse,
+        'Could not load SkyBlock profiles',
+      )
+
+      setPlayer(foundPlayer)
+      setProfiles(foundProfiles)
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Something went wrong')
     } finally {
@@ -99,6 +109,27 @@ function App() {
           </dl>
         </section>
       )}
+
+      {player && (
+        <section className="profiles">
+          <h2>SkyBlock profiles</h2>
+          {profiles.length === 0 ? (
+            <p>No SkyBlock profiles found.</p>
+          ) : (
+            <ul>
+              {profiles.map((profile) => (
+                <li key={profile.profileId}>
+                  <strong>{profile.name}</strong>
+                  <span>
+                    {profile.selected ? 'Current profile' : 'Profile'}
+                    {profile.gameMode && ` - ${formatGameMode(profile.gameMode)}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </main>
   )
 }
@@ -115,12 +146,30 @@ async function readApiError(response: Response): Promise<ApiError | null> {
   }
 }
 
+async function readHypixelResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
+  if (response.ok) return await response.json() as T
+
+  const apiError = await readApiError(response)
+  if (response.status === 429) {
+    const retryAfter = apiError?.retryAfterSeconds
+      ?? Number(response.headers.get('Retry-After'))
+    throw new Error(
+      `Hypixel's request limit has been reached. Try again in ${formatRetryDelay(retryAfter)}.`,
+    )
+  }
+  throw new Error(apiError?.message ?? fallbackMessage)
+}
+
 function formatRetryDelay(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0) return 'about a minute'
   if (seconds < 60) return `${Math.ceil(seconds)} seconds`
 
   const minutes = Math.ceil(seconds / 60)
   return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+}
+
+function formatGameMode(gameMode: string) {
+  return gameMode.charAt(0).toUpperCase() + gameMode.slice(1)
 }
 
 export default App

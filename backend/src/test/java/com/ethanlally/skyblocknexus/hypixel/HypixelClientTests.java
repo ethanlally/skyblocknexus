@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
@@ -38,6 +39,31 @@ class HypixelClientTests {
 
         assertThat(player.displayName()).isEqualTo("ExamplePlayer");
         assertThat(player.lastLogin()).isEqualTo(1711929600000L);
+        server.verify();
+    }
+
+    @Test
+    void readsSkyBlockProfilesForAPlayer() throws Exception {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        HypixelClient client = new HypixelClient("test-key", builder
+                .baseUrl("https://api.hypixel.net")
+                .build(), new HypixelRateLimiter());
+        String fixture = new ClassPathResource("fixtures/hypixel/skyblock/profiles-success.json")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        server.expect(requestTo(
+                        "https://api.hypixel.net/v2/skyblock/profiles"
+                                + "?uuid=0123456789abcdef0123456789abcdef"))
+                .andExpect(header("API-Key", "test-key"))
+                .andRespond(withSuccess(fixture, MediaType.APPLICATION_JSON));
+
+        var profiles = client.getSkyBlockProfiles("0123456789abcdef0123456789abcdef");
+
+        assertThat(profiles).hasSize(2);
+        assertThat(profiles.getFirst().name()).isEqualTo("Apple");
+        assertThat(profiles.getFirst().selected()).isTrue();
+        assertThat(profiles.getLast().gameMode()).isEqualTo("ironman");
         server.verify();
     }
 

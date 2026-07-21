@@ -68,16 +68,20 @@ class HypixelClientTests {
     }
 
     @Test
-    void startsALocalCooldownAfterAnUpstreamRateLimitResponse() {
+    void startsALocalCooldownAfterAnUpstreamRateLimitResponse() throws Exception {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         HypixelRateLimiter rateLimiter = rateLimiterAt("2026-07-15T12:00:00Z");
         HypixelClient client = new HypixelClient("test-key", builder
                 .baseUrl("https://api.hypixel.net")
                 .build(), rateLimiter);
+        String fixture = new ClassPathResource("fixtures/hypixel/rate-limit.json")
+                .getContentAsString(StandardCharsets.UTF_8);
 
         server.expect(queryParam("uuid", "first-player"))
                 .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(fixture)
                         .header("RateLimit-Limit", "120")
                         .header("RateLimit-Remaining", "0")
                         .header("RateLimit-Reset", "20"));

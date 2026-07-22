@@ -2,7 +2,7 @@
 
 A personal project for exploring Hypixel SkyBlock data. The current version is a
 Spring Boot API and React page that can look up a player by Minecraft username
-and list their SkyBlock profiles.
+and browse their SkyBlock profiles with shareable profile URLs.
 
 ## Setup
 

@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import './App.css'
 
 type Player = {
@@ -26,14 +27,30 @@ type ApiError = {
 }
 
 function App() {
-  const [username, setUsername] = useState('')
+  return (
+    <Routes>
+      <Route path="/" element={<PlayerPage />} />
+      <Route path="/players/:routeUsername" element={<PlayerPage />} />
+      <Route
+        path="/players/:routeUsername/profiles/:profileId"
+        element={<PlayerPage />}
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
+}
+
+function PlayerPage() {
+  const { routeUsername, profileId } = useParams()
+  const navigate = useNavigate()
+  const loadedUsername = useRef<string | null>(null)
+  const [username, setUsername] = useState(routeUsername ?? '')
   const [player, setPlayer] = useState<Player | null>(null)
   const [profiles, setProfiles] = useState<SkyBlockProfile[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  async function findPlayer(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  const loadPlayer = useCallback(async (requestedUsername: string) => {
     setLoading(true)
     setError('')
     setPlayer(null)
@@ -41,7 +58,7 @@ function App() {
 
     try {
       const minecraftResponse = await fetch(
-        `/api/minecraft/players/${encodeURIComponent(username.trim())}`,
+        `/api/minecraft/players/${encodeURIComponent(requestedUsername)}`,
       )
       if (!minecraftResponse.ok) {
         throw new Error(
@@ -66,12 +83,60 @@ function App() {
 
       setPlayer(foundPlayer)
       setProfiles(foundProfiles)
+
+      if (!profileId) {
+        const defaultProfile = foundProfiles.find((profile) => profile.selected) ?? foundProfiles[0]
+        if (defaultProfile) {
+          navigate(profilePath(requestedUsername, defaultProfile.profileId), { replace: true })
+        }
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Something went wrong')
     } finally {
       setLoading(false)
     }
+  }, [navigate, profileId])
+
+  useEffect(() => {
+    if (!routeUsername) {
+      loadedUsername.current = null
+      setUsername('')
+      setPlayer(null)
+      setProfiles([])
+      setError('')
+      return
+    }
+
+    setUsername(routeUsername)
+    const normalizedUsername = routeUsername.toLowerCase()
+    if (loadedUsername.current === normalizedUsername) return
+
+    loadedUsername.current = normalizedUsername
+    void loadPlayer(routeUsername)
+  }, [loadPlayer, routeUsername])
+
+  async function findPlayer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const requestedUsername = username.trim()
+
+    if (routeUsername?.toLowerCase() === requestedUsername.toLowerCase()) {
+      const defaultProfile = profiles.find((profile) => profile.selected) ?? profiles[0]
+      if (defaultProfile) {
+        navigate(profilePath(requestedUsername, defaultProfile.profileId))
+      } else {
+        loadedUsername.current = requestedUsername.toLowerCase()
+        await loadPlayer(requestedUsername)
+      }
+      return
+    }
+
+    navigate(`/players/${encodeURIComponent(requestedUsername)}`)
   }
+
+  const profileRouteIsUnknown = Boolean(
+    profileId && profiles.length > 0
+      && !profiles.some((profile) => profile.profileId === profileId),
+  )
 
   return (
     <main>
@@ -113,17 +178,26 @@ function App() {
       {player && (
         <section className="profiles">
           <h2>SkyBlock profiles</h2>
+          {profileRouteIsUnknown && (
+            <p className="error">That profile is not available for this player.</p>
+          )}
           {profiles.length === 0 ? (
             <p>No SkyBlock profiles found.</p>
           ) : (
             <ul>
               {profiles.map((profile) => (
                 <li key={profile.profileId}>
-                  <strong>{profile.name}</strong>
-                  <span>
-                    {profile.selected ? 'Current profile' : 'Profile'}
-                    {profile.gameMode && ` - ${formatGameMode(profile.gameMode)}`}
-                  </span>
+                  <Link
+                    to={profilePath(routeUsername ?? username, profile.profileId)}
+                    className={profile.profileId === profileId ? 'profile-link active' : 'profile-link'}
+                    aria-current={profile.profileId === profileId ? 'page' : undefined}
+                  >
+                    <strong>{profile.name}</strong>
+                    <span>
+                      {profile.selected ? 'Current profile' : 'Profile'}
+                      {profile.gameMode && ` - ${formatGameMode(profile.gameMode)}`}
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -132,6 +206,10 @@ function App() {
       )}
     </main>
   )
+}
+
+function profilePath(username: string, profileId: string) {
+  return `/players/${encodeURIComponent(username)}/profiles/${encodeURIComponent(profileId)}`
 }
 
 function formatDate(timestamp: number | null) {

@@ -21,6 +21,29 @@ type SkyBlockProfile = {
   gameMode: string | null
 }
 
+type SkillProgress = {
+  name: string
+  level: number
+  totalExperience: number
+  experienceIntoLevel: number
+  experienceForNextLevel: number | null
+}
+
+type CollectionProgress = {
+  itemId: string
+  name: string
+  totalAmount: number
+  tier: number
+  amountIntoTier: number
+  amountForNextTier: number | null
+}
+
+type ProfileProgress = {
+  profileId: string
+  skills: SkillProgress[]
+  collections: CollectionProgress[]
+}
+
 type ApiError = {
   message?: string
   retryAfterSeconds?: number
@@ -47,6 +70,9 @@ function PlayerPage() {
   const [username, setUsername] = useState(routeUsername ?? '')
   const [player, setPlayer] = useState<Player | null>(null)
   const [profiles, setProfiles] = useState<SkyBlockProfile[]>([])
+  const [profileProgress, setProfileProgress] = useState<ProfileProgress | null>(null)
+  const [progressError, setProgressError] = useState('')
+  const [progressLoading, setProgressLoading] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -55,6 +81,7 @@ function PlayerPage() {
     setError('')
     setPlayer(null)
     setProfiles([])
+    setProfileProgress(null)
 
     try {
       const minecraftResponse = await fetch(
@@ -103,6 +130,7 @@ function PlayerPage() {
       setUsername('')
       setPlayer(null)
       setProfiles([])
+      setProfileProgress(null)
       setError('')
       return
     }
@@ -114,6 +142,42 @@ function PlayerPage() {
     loadedUsername.current = normalizedUsername
     void loadPlayer(routeUsername)
   }, [loadPlayer, routeUsername])
+
+  useEffect(() => {
+    const profileExists = profiles.some((profile) => profile.profileId === profileId)
+    if (!player || !profileId || !profileExists) {
+      setProfileProgress(null)
+      setProgressError('')
+      setProgressLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    setProfileProgress(null)
+    setProgressError('')
+    setProgressLoading(true)
+
+    void fetch(
+      `/api/players/${player.uuid}/profiles/${encodeURIComponent(profileId)}/progress`,
+      { signal: controller.signal },
+    )
+      .then((response) => readHypixelResponse<ProfileProgress>(
+        response,
+        'Could not load profile progress',
+      ))
+      .then(setProfileProgress)
+      .catch((requestError: unknown) => {
+        if (requestError instanceof DOMException && requestError.name === 'AbortError') return
+        setProgressError(
+          requestError instanceof Error ? requestError.message : 'Could not load profile progress',
+        )
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setProgressLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [player, profileId, profiles])
 
   async function findPlayer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -204,7 +268,102 @@ function PlayerPage() {
           )}
         </section>
       )}
+
+      {progressLoading && <p className="progress-status">Loading profile progress...</p>}
+      {progressError && <p className="error">{progressError}</p>}
+      {profileProgress && (
+        <ProfileProgressDetails progress={profileProgress} />
+      )}
     </main>
+  )
+}
+
+function ProfileProgressDetails({ progress }: { progress: ProfileProgress }) {
+  const highlightedCollections = progress.collections.slice(0, 12)
+  const remainingCollections = progress.collections.slice(12)
+
+  return (
+    <section className="profile-progress">
+      <div>
+        <h2>Skills</h2>
+        {progress.skills.length === 0 ? (
+          <p>No skill data is available for this profile.</p>
+        ) : (
+          <ul className="progress-grid">
+            {progress.skills.map((skill) => (
+              <li key={skill.name} className="progress-card">
+                <div className="progress-heading">
+                  <strong>{skill.name}</strong>
+                  <span>Level {skill.level}</span>
+                </div>
+                {skill.experienceForNextLevel === null ? (
+                  <span className="progress-copy">{formatNumber(skill.totalExperience)} total XP</span>
+                ) : (
+                  <>
+                    <progress
+                      value={skill.experienceIntoLevel}
+                      max={skill.experienceForNextLevel}
+                    />
+                    <span className="progress-copy">
+                      {formatNumber(skill.experienceIntoLevel)} /{' '}
+                      {formatNumber(skill.experienceForNextLevel)} XP
+                    </span>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <h2>Collections</h2>
+        {progress.collections.length === 0 ? (
+          <p>No collection data is available for this profile.</p>
+        ) : (
+          <>
+            <CollectionProgressGrid collections={highlightedCollections} />
+            {remainingCollections.length > 0 && (
+              <details className="more-collections">
+                <summary>Show {remainingCollections.length} more collections</summary>
+                <CollectionProgressGrid collections={remainingCollections} />
+              </details>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function CollectionProgressGrid({ collections }: { collections: CollectionProgress[] }) {
+  return (
+    <ul className="progress-grid">
+      {collections.map((collection) => (
+        <li key={collection.itemId} className="progress-card">
+          <div className="progress-heading">
+            <strong>{collection.name}</strong>
+            <span>Tier {collection.tier}</span>
+          </div>
+          {collection.amountForNextTier === null ? (
+            <span className="progress-copy">
+              {formatNumber(collection.totalAmount)} collected
+            </span>
+          ) : (
+            <>
+              <progress
+                value={collection.amountIntoTier}
+                max={collection.amountForNextTier}
+              />
+              <span className="progress-copy">
+                {formatNumber(collection.amountIntoTier)} /{' '}
+                {formatNumber(collection.amountForNextTier)} to next tier
+              </span>
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -248,6 +407,10 @@ function formatRetryDelay(seconds: number) {
 
 function formatGameMode(gameMode: string) {
   return gameMode.charAt(0).toUpperCase() + gameMode.slice(1)
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat().format(Math.round(value))
 }
 
 export default App

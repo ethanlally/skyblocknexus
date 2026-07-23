@@ -1,6 +1,7 @@
 package com.ethanlally.skyblocknexus.player;
 
 import com.ethanlally.skyblocknexus.hypixel.HypixelClient;
+import com.ethanlally.skyblocknexus.skyblock.SkyBlockProfileProgress;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockProfileSummary;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,5 +28,12 @@ public class PlayerController {
     @GetMapping("/{uuid}/profiles")
     public List<SkyBlockProfileSummary> getProfiles(@PathVariable String uuid) {
         return hypixelClient.getSkyBlockProfiles(uuid);
+    }
+
+    @GetMapping("/{uuid}/profiles/{profileId}/progress")
+    public SkyBlockProfileProgress getProfileProgress(
+            @PathVariable String uuid,
+            @PathVariable String profileId) {
+        return hypixelClient.getSkyBlockProfileProgress(uuid, profileId);
     }
 }

@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "skills": {
+    "FARMING": {
+      "name": "Farming",
+      "maxLevel": 3,
+      "levels": [
+        { "level": 1, "totalExpRequired": 50 },
+        { "level": 2, "totalExpRequired": 175 },
+        { "level": 3, "totalExpRequired": 375 }
+      ]
+    },
+    "MINING": {
+      "name": "Mining",
+      "maxLevel": 2,
+      "levels": [
+        { "level": 1, "totalExpRequired": 50 },
+        { "level": 2, "totalExpRequired": 175 }
+      ]
+    }
+  }
+}

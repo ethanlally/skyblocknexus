@@ -3,6 +3,8 @@
 A personal project for exploring Hypixel SkyBlock data. The current version is a
 Spring Boot API and React page that can look up a player by Minecraft username
 and browse their SkyBlock profiles with shareable profile URLs.
+Selected profiles show skill levels and collection tier progress calculated
+from Hypixel's current game resource definitions.
 
 ## Setup
 

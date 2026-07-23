@@ -68,6 +68,44 @@ class HypixelClientTests {
     }
 
     @Test
+    void readsSkillAndCollectionProgressForAProfile() throws Exception {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        HypixelClient client = new HypixelClient("test-key", builder
+                .baseUrl("https://api.hypixel.net")
+                .build(), new HypixelRateLimiter());
+
+        server.expect(requestTo(
+                        "https://api.hypixel.net/v2/skyblock/profile"
+                                + "?profile=11111111-1111-1111-1111-111111111111"))
+                .andExpect(header("API-Key", "test-key"))
+                .andRespond(withSuccess(fixture("skyblock/profile-progress-success.json"),
+                        MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.hypixel.net/v2/resources/skyblock/skills"))
+                .andRespond(withSuccess(fixture("skyblock/skills-resource.json"),
+                        MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.hypixel.net/v2/resources/skyblock/collections"))
+                .andRespond(withSuccess(fixture("skyblock/collections-resource.json"),
+                        MediaType.APPLICATION_JSON));
+
+        var progress = client.getSkyBlockProfileProgress(
+                "0123456789abcdef0123456789abcdef",
+                "11111111-1111-1111-1111-111111111111");
+
+        assertThat(progress.skills()).hasSize(2);
+        assertThat(progress.skills().getFirst().name()).isEqualTo("Farming");
+        assertThat(progress.skills().getFirst().level()).isEqualTo(2);
+        assertThat(progress.skills().getFirst().experienceIntoLevel()).isEqualTo(25);
+        assertThat(progress.skills().getFirst().experienceForNextLevel()).isEqualTo(200);
+        assertThat(progress.collections()).hasSize(2);
+        assertThat(progress.collections().getFirst().name()).isEqualTo("Wheat");
+        assertThat(progress.collections().getFirst().tier()).isEqualTo(3);
+        assertThat(progress.collections().getFirst().amountIntoTier()).isEqualTo(100);
+        assertThat(progress.collections().getFirst().amountForNextTier()).isEqualTo(250);
+        server.verify();
+    }
+
+    @Test
     void stopsBeforeAnotherRequestWhenTheKnownLimitIsExhausted() throws Exception {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -123,5 +161,10 @@ class HypixelClientTests {
 
     private HypixelRateLimiter rateLimiterAt(String instant) {
         return new HypixelRateLimiter(Clock.fixed(Instant.parse(instant), ZoneOffset.UTC));
+    }
+
+    private String fixture(String path) throws Exception {
+        return new ClassPathResource("fixtures/hypixel/" + path)
+                .getContentAsString(StandardCharsets.UTF_8);
     }
 }

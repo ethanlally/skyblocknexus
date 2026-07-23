@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "collections": {
+    "FARMING": {
+      "name": "Farming",
+      "items": {
+        "WHEAT": {
+          "name": "Wheat",
+          "maxTiers": 4,
+          "tiers": [
+            { "tier": 1, "amountRequired": 50 },
+            { "tier": 2, "amountRequired": 100 },
+            { "tier": 3, "amountRequired": 250 },
+            { "tier": 4, "amountRequired": 500 }
+          ]
+        }
+      }
+    },
+    "MINING": {
+      "name": "Mining",
+      "items": {
+        "COBBLESTONE": {
+          "name": "Cobblestone",
+          "maxTiers": 2,
+          "tiers": [
+            { "tier": 1, "amountRequired": 50 },
+            { "tier": 2, "amountRequired": 100 }
+          ]
+        }
+      }
+    }
+  }
+}

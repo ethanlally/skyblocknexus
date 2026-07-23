@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "profile": {
+    "profile_id": "11111111-1111-1111-1111-111111111111",
+    "members": {
+      "0123456789abcdef0123456789abcdef": {
+        "experience_skill_farming": 200,
+        "experience_skill_mining": 50,
+        "collection": {
+          "WHEAT": 350,
+          "COBBLESTONE": 20
+        }
+      }
+    }
+  }
+}

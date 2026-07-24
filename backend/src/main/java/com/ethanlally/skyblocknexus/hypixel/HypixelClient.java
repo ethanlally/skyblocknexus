@@ -2,6 +2,9 @@ package com.ethanlally.skyblocknexus.hypixel;
 
 import com.ethanlally.skyblocknexus.player.PlayerSummary;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockCollectionProgress;
+import com.ethanlally.skyblocknexus.skyblock.SkyBlockCurrencySummary;
+import com.ethanlally.skyblocknexus.skyblock.SkyBlockEquipmentItem;
+import com.ethanlally.skyblocknexus.skyblock.SkyBlockItemDecoder;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockProfileProgress;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockProfileSummary;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockSkillProgress;
@@ -25,6 +28,7 @@ public class HypixelClient {
     private final String apiKey;
     private final RestClient restClient;
     private final HypixelRateLimiter rateLimiter;
+    private final SkyBlockItemDecoder itemDecoder = new SkyBlockItemDecoder();
 
     @Autowired
     public HypixelClient(
@@ -99,8 +103,54 @@ public class HypixelClient {
 
         return new SkyBlockProfileProgress(
                 profile.path("profile_id").asString(profileId),
+                readCurrencies(profile, member),
+                readEquipment(member),
                 readSkillProgress(member, skillDefinitions),
                 readCollectionProgress(member, collectionDefinitions));
+    }
+
+    private SkyBlockCurrencySummary readCurrencies(JsonNode profile, JsonNode member) {
+        JsonNode currencies = member.path("currencies");
+        return new SkyBlockCurrencySummary(
+                optionalDouble(currencies, "coin_purse"),
+                optionalDouble(profile.path("banking"), "balance"),
+                optionalDouble(currencies, "motes_purse"));
+    }
+
+    private List<SkyBlockEquipmentItem> readEquipment(JsonNode member) {
+        JsonNode inventory = member.path("inventory");
+        List<SkyBlockEquipmentItem> items = new ArrayList<>();
+        items.addAll(itemDecoder.decodeItems(
+                inventory.path("inv_armor").path("data").asString(),
+                "Armor"));
+
+        List<SkyBlockEquipmentItem> equipment = itemDecoder.decodeItems(
+                inventory.path("equipment_contents").path("data").asString(),
+                "Equipment");
+        if (equipment.isEmpty()) {
+            equipment = readEquipmentLoadout(member.path("loadout"));
+        }
+        items.addAll(equipment);
+        return List.copyOf(items);
+    }
+
+    private List<SkyBlockEquipmentItem> readEquipmentLoadout(JsonNode loadout) {
+        String equippedSet = loadout.path("armor").path("equipped_set").asString();
+        JsonNode equipmentSet = loadout.path("equipment").get(equippedSet);
+        if (equipmentSet == null || !equipmentSet.isObject()) {
+            return List.of();
+        }
+
+        List<SkyBlockEquipmentItem> equipment = new ArrayList<>();
+        for (Map.Entry<String, JsonNode> slot : equipmentSet.properties()) {
+            if (!slot.getKey().startsWith("EQUIPMENT_SLOT_")) {
+                continue;
+            }
+            equipment.addAll(itemDecoder.decodeItems(
+                    slot.getValue().path("data").asString(),
+                    "Equipment"));
+        }
+        return List.copyOf(equipment);
     }
 
     private List<SkyBlockSkillProgress> readSkillProgress(
@@ -272,6 +322,11 @@ public class HypixelClient {
     private Long optionalLong(JsonNode node, String field) {
         JsonNode value = node.get(field);
         return value == null || value.isNull() ? null : value.asLong();
+    }
+
+    private Double optionalDouble(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() ? null : value.asDouble();
     }
 
     private String optionalString(JsonNode node, String field) {

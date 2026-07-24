@@ -92,6 +92,14 @@ class HypixelClientTests {
                 "0123456789abcdef0123456789abcdef",
                 "11111111-1111-1111-1111-111111111111");
 
+        assertThat(progress.currencies().coinPurse()).isEqualTo(123456.75);
+        assertThat(progress.currencies().bankBalance()).isEqualTo(7654321.5);
+        assertThat(progress.currencies().motesPurse()).isEqualTo(4321);
+        assertThat(progress.equipment()).hasSize(3);
+        assertThat(progress.equipment().getFirst().category()).isEqualTo("Armor");
+        assertThat(progress.equipment().getFirst().name()).isEqualTo("Test Boots");
+        assertThat(progress.equipment().get(1).itemId()).isEqualTo("TEST_HELMET");
+        assertThat(progress.equipment().getLast().name()).isEqualTo("Test Necklace");
         assertThat(progress.skills()).hasSize(2);
         assertThat(progress.skills().getFirst().name()).isEqualTo("Farming");
         assertThat(progress.skills().getFirst().level()).isEqualTo(2);

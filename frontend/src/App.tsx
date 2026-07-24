@@ -38,8 +38,22 @@ type CollectionProgress = {
   amountForNextTier: number | null
 }
 
+type CurrencySummary = {
+  coinPurse: number | null
+  bankBalance: number | null
+  motesPurse: number | null
+}
+
+type EquipmentItem = {
+  category: string
+  itemId: string
+  name: string
+}
+
 type ProfileProgress = {
   profileId: string
+  currencies: CurrencySummary
+  equipment: EquipmentItem[]
   skills: SkillProgress[]
   collections: CollectionProgress[]
 }
@@ -285,6 +299,31 @@ function ProfileProgressDetails({ progress }: { progress: ProfileProgress }) {
   return (
     <section className="profile-progress">
       <div>
+        <h2>Currencies</h2>
+        <dl className="currency-grid">
+          <Currency label="Purse" amount={progress.currencies.coinPurse} unit="coins" />
+          <Currency label="Bank" amount={progress.currencies.bankBalance} unit="coins" />
+          <Currency label="Motes" amount={progress.currencies.motesPurse} unit="motes" />
+        </dl>
+      </div>
+
+      <div>
+        <h2>Equipped items</h2>
+        {progress.equipment.length === 0 ? (
+          <p>No equipment data is available for this profile.</p>
+        ) : (
+          <ul className="equipment-grid">
+            {progress.equipment.map((item, index) => (
+              <li key={`${item.category}-${item.itemId}-${index}`} className="progress-card">
+                <strong>{item.name}</strong>
+                <span className="progress-copy">{item.category}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
         <h2>Skills</h2>
         {progress.skills.length === 0 ? (
           <p>No skill data is available for this profile.</p>
@@ -333,6 +372,19 @@ function ProfileProgressDetails({ progress }: { progress: ProfileProgress }) {
         )}
       </div>
     </section>
+  )
+}
+
+function Currency({ label, amount, unit }: {
+  label: string
+  amount: number | null
+  unit: string
+}) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{amount === null ? 'Unavailable' : `${formatNumber(amount)} ${unit}`}</dd>
+    </div>
   )
 }
 

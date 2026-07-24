@@ -28,21 +28,32 @@ public class HypixelClient {
     private final String apiKey;
     private final RestClient restClient;
     private final HypixelRateLimiter rateLimiter;
+    private final HypixelResponseCache responseCache;
     private final SkyBlockItemDecoder itemDecoder = new SkyBlockItemDecoder();
 
     @Autowired
     public HypixelClient(
             @Value("${hypixel.api-key:}") String apiKey,
-            HypixelRateLimiter rateLimiter) {
+            HypixelRateLimiter rateLimiter,
+            HypixelResponseCache responseCache) {
         this(apiKey, RestClient.builder()
                 .baseUrl("https://api.hypixel.net")
-                .build(), rateLimiter);
+                .build(), rateLimiter, responseCache);
     }
 
     HypixelClient(String apiKey, RestClient restClient, HypixelRateLimiter rateLimiter) {
+        this(apiKey, restClient, rateLimiter, HypixelResponseCache.withDefaults());
+    }
+
+    HypixelClient(
+            String apiKey,
+            RestClient restClient,
+            HypixelRateLimiter rateLimiter,
+            HypixelResponseCache responseCache) {
         this.apiKey = apiKey;
         this.restClient = restClient;
         this.rateLimiter = rateLimiter;
+        this.responseCache = responseCache;
     }
 
     public PlayerSummary getPlayer(String uuid) {
@@ -290,13 +301,28 @@ public class HypixelClient {
             throw new IllegalStateException("HYPIXEL_API_KEY is not configured");
         }
 
-        return request(restClient.get()
+        String cacheKey = path + "?" + queryParameter + "=" + value;
+        JsonNode cachedResponse = responseCache.get(cacheKey);
+        if (cachedResponse != null) {
+            return cachedResponse;
+        }
+
+        JsonNode response = request(restClient.get()
                 .uri(uriBuilder -> uriBuilder.path(path).queryParam(queryParameter, value).build())
                 .header("API-Key", apiKey));
+        responseCache.put(cacheKey, response);
+        return response;
     }
 
     private JsonNode get(String path) {
-        return request(restClient.get().uri(path));
+        JsonNode cachedResponse = responseCache.get(path);
+        if (cachedResponse != null) {
+            return cachedResponse;
+        }
+
+        JsonNode response = request(restClient.get().uri(path));
+        responseCache.put(path, response);
+        return response;
     }
 
     private JsonNode request(RestClient.RequestHeadersSpec<?> requestSpec) {

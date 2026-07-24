@@ -43,6 +43,30 @@ class HypixelClientTests {
     }
 
     @Test
+    void servesARecentPlayerLookupFromTheCache() throws Exception {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        HypixelRateLimiter rateLimiter = rateLimiterAt("2026-07-15T12:00:00Z");
+        HypixelClient client = new HypixelClient("test-key", builder
+                .baseUrl("https://api.hypixel.net")
+                .build(), rateLimiter);
+        String fixture = new ClassPathResource("fixtures/hypixel/player-success.json")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        server.expect(queryParam("uuid", "cached-player"))
+                .andRespond(withSuccess(fixture, MediaType.APPLICATION_JSON)
+                        .header("RateLimit-Limit", "120")
+                        .header("RateLimit-Remaining", "0")
+                        .header("RateLimit-Reset", "30"));
+
+        var firstLookup = client.getPlayer("cached-player");
+        var cachedLookup = client.getPlayer("cached-player");
+
+        assertThat(cachedLookup).isEqualTo(firstLookup);
+        server.verify();
+    }
+
+    @Test
     void readsSkyBlockProfilesForAPlayer() throws Exception {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

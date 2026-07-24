@@ -37,6 +37,25 @@ class HypixelClientFailureTests {
     }
 
     @Test
+    void doesNotCacheFailedRequests() throws Exception {
+        TestContext context = testContext();
+        context.server().expect(queryParam("uuid", "example-player"))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(fixture("invalid-api-key.json")));
+        context.server().expect(queryParam("uuid", "example-player"))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(fixture("invalid-api-key.json")));
+
+        assertThatThrownBy(() -> context.client().getPlayer("example-player"))
+                .isInstanceOf(HttpClientErrorException.Forbidden.class);
+        assertThatThrownBy(() -> context.client().getPlayer("example-player"))
+                .isInstanceOf(HttpClientErrorException.Forbidden.class);
+        context.server().verify();
+    }
+
+    @Test
     void reportsWhenThePlayerIsMissing() throws Exception {
         TestContext context = testContext();
         context.server().expect(queryParam("uuid", "missing-player"))

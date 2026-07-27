@@ -81,6 +81,8 @@ function PlayerPage() {
   const { routeUsername, profileId } = useParams()
   const navigate = useNavigate()
   const loadedUsername = useRef<string | null>(null)
+  const playerRequest = useRef<AbortController | null>(null)
+  const progressRequest = useRef<AbortController | null>(null)
   const [username, setUsername] = useState(routeUsername ?? '')
   const [player, setPlayer] = useState<Player | null>(null)
   const [profiles, setProfiles] = useState<SkyBlockProfile[]>([])
@@ -91,15 +93,23 @@ function PlayerPage() {
   const [loading, setLoading] = useState(false)
 
   const loadPlayer = useCallback(async (requestedUsername: string) => {
+    playerRequest.current?.abort()
+    progressRequest.current?.abort()
+    const controller = new AbortController()
+    playerRequest.current = controller
+
     setLoading(true)
     setError('')
     setPlayer(null)
     setProfiles([])
     setProfileProgress(null)
+    setProgressError('')
+    setProgressLoading(false)
 
     try {
       const minecraftResponse = await fetch(
         `/api/minecraft/players/${encodeURIComponent(requestedUsername)}`,
+        { signal: controller.signal },
       )
       if (!minecraftResponse.ok) {
         throw new Error(
@@ -110,13 +120,19 @@ function PlayerPage() {
       }
 
       const minecraftPlayer = await minecraftResponse.json() as MinecraftPlayer
-      const playerResponse = await fetch(`/api/players/${minecraftPlayer.uuid}`)
+      const playerResponse = await fetch(
+        `/api/players/${minecraftPlayer.uuid}`,
+        { signal: controller.signal },
+      )
       const foundPlayer = await readHypixelResponse<Player>(
         playerResponse,
         'Could not find that player',
       )
 
-      const profilesResponse = await fetch(`/api/players/${minecraftPlayer.uuid}/profiles`)
+      const profilesResponse = await fetch(
+        `/api/players/${minecraftPlayer.uuid}/profiles`,
+        { signal: controller.signal },
+      )
       const foundProfiles = await readHypixelResponse<SkyBlockProfile[]>(
         profilesResponse,
         'Could not load SkyBlock profiles',
@@ -132,20 +148,31 @@ function PlayerPage() {
         }
       }
     } catch (requestError) {
+      if (isAbortError(requestError)) return
       setError(requestError instanceof Error ? requestError.message : 'Something went wrong')
     } finally {
-      setLoading(false)
+      if (playerRequest.current === controller) {
+        playerRequest.current = null
+        setLoading(false)
+      }
     }
   }, [navigate, profileId])
 
   useEffect(() => {
     if (!routeUsername) {
+      playerRequest.current?.abort()
+      progressRequest.current?.abort()
+      playerRequest.current = null
+      progressRequest.current = null
       loadedUsername.current = null
       setUsername('')
       setPlayer(null)
       setProfiles([])
       setProfileProgress(null)
+      setProgressError('')
+      setProgressLoading(false)
       setError('')
+      setLoading(false)
       return
     }
 
@@ -160,6 +187,8 @@ function PlayerPage() {
   useEffect(() => {
     const profileExists = profiles.some((profile) => profile.profileId === profileId)
     if (!player || !profileId || !profileExists) {
+      progressRequest.current?.abort()
+      progressRequest.current = null
       setProfileProgress(null)
       setProgressError('')
       setProgressLoading(false)
@@ -167,6 +196,8 @@ function PlayerPage() {
     }
 
     const controller = new AbortController()
+    progressRequest.current?.abort()
+    progressRequest.current = controller
     setProfileProgress(null)
     setProgressError('')
     setProgressLoading(true)
@@ -181,17 +212,33 @@ function PlayerPage() {
       ))
       .then(setProfileProgress)
       .catch((requestError: unknown) => {
-        if (requestError instanceof DOMException && requestError.name === 'AbortError') return
+        if (isAbortError(requestError)) return
         setProgressError(
           requestError instanceof Error ? requestError.message : 'Could not load profile progress',
         )
       })
       .finally(() => {
-        if (!controller.signal.aborted) setProgressLoading(false)
+        if (progressRequest.current === controller) {
+          progressRequest.current = null
+          setProgressLoading(false)
+        }
       })
 
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      if (progressRequest.current === controller) {
+        progressRequest.current = null
+      }
+    }
   }, [player, profileId, profiles])
+
+  useEffect(() => () => {
+    playerRequest.current?.abort()
+    progressRequest.current?.abort()
+    playerRequest.current = null
+    progressRequest.current = null
+    loadedUsername.current = null
+  }, [])
 
   async function findPlayer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -260,7 +307,10 @@ function PlayerPage() {
             <p className="error">That profile is not available for this player.</p>
           )}
           {profiles.length === 0 ? (
-            <p>No SkyBlock profiles found.</p>
+            <p>
+              No SkyBlock profiles are available. This player may not have played
+              SkyBlock or may have profile API access disabled.
+            </p>
           ) : (
             <ul>
               {profiles.map((profile) => (
@@ -295,9 +345,21 @@ function PlayerPage() {
 function ProfileProgressDetails({ progress }: { progress: ProfileProgress }) {
   const highlightedCollections = progress.collections.slice(0, 12)
   const remainingCollections = progress.collections.slice(12)
+  const detailsUnavailable = progress.currencies.coinPurse === null
+    && progress.currencies.bankBalance === null
+    && progress.currencies.motesPurse === null
+    && progress.equipment.length === 0
+    && progress.skills.length === 0
+    && progress.collections.length === 0
 
   return (
     <section className="profile-progress">
+      {detailsUnavailable && (
+        <p className="progress-status">
+          Detailed profile data is unavailable. The player may have disabled
+          SkyBlock API access.
+        </p>
+      )}
       <div>
         <h2>Currencies</h2>
         <dl className="currency-grid">
@@ -447,6 +509,10 @@ async function readHypixelResponse<T>(response: Response, fallbackMessage: strin
     )
   }
   throw new Error(apiError?.message ?? fallbackMessage)
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError'
 }
 
 function formatRetryDelay(seconds: number) {

@@ -61,7 +61,7 @@ public class HypixelClient {
 
         JsonNode player = response == null ? null : response.get("player");
         if (player == null || player.isNull()) {
-            throw new IllegalArgumentException("Player not found");
+            throw new HypixelDataNotFoundException("Hypixel player data was not found");
         }
 
         return new PlayerSummary(
@@ -101,12 +101,13 @@ public class HypixelClient {
         JsonNode response = get("/v2/skyblock/profile", "profile", profileId);
         JsonNode profile = response == null ? null : response.get("profile");
         if (profile == null || profile.isNull()) {
-            throw new IllegalArgumentException("SkyBlock profile not found");
+            throw new HypixelDataNotFoundException("SkyBlock profile was not found");
         }
 
         JsonNode member = profile.path("members").get(uuid.replace("-", ""));
         if (member == null || member.isNull()) {
-            throw new IllegalArgumentException("Player is not a member of that SkyBlock profile");
+            throw new HypixelDataNotFoundException(
+                    "That player is not a member of this SkyBlock profile");
         }
 
         JsonNode skillDefinitions = get("/v2/resources/skyblock/skills").path("skills");
@@ -310,7 +311,9 @@ public class HypixelClient {
         JsonNode response = request(restClient.get()
                 .uri(uriBuilder -> uriBuilder.path(path).queryParam(queryParameter, value).build())
                 .header("API-Key", apiKey));
-        responseCache.put(cacheKey, response);
+        if (isCacheableResponse(path, response)) {
+            responseCache.put(cacheKey, response);
+        }
         return response;
     }
 
@@ -321,8 +324,23 @@ public class HypixelClient {
         }
 
         JsonNode response = request(restClient.get().uri(path));
-        responseCache.put(path, response);
+        if (isCacheableResponse(path, response)) {
+            responseCache.put(path, response);
+        }
         return response;
+    }
+
+    private boolean isCacheableResponse(String path, JsonNode response) {
+        if (response == null || !response.path("success").asBoolean(true)) {
+            return false;
+        }
+
+        return switch (path) {
+            case "/v2/player" -> response.path("player").isObject();
+            case "/v2/skyblock/profiles" -> response.path("profiles").isArray();
+            case "/v2/skyblock/profile" -> response.path("profile").isObject();
+            default -> true;
+        };
     }
 
     private JsonNode request(RestClient.RequestHeadersSpec<?> requestSpec) {

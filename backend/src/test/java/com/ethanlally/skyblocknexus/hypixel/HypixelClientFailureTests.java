@@ -62,10 +62,79 @@ class HypixelClientFailureTests {
                 .andRespond(withSuccess(
                         fixture("player-not-found.json"),
                         MediaType.APPLICATION_JSON));
+        context.server().expect(queryParam("uuid", "missing-player"))
+                .andRespond(withSuccess(
+                        fixture("player-not-found.json"),
+                        MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> context.client().getPlayer("missing-player"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Player not found");
+                .isInstanceOf(HypixelDataNotFoundException.class)
+                .hasMessage("Hypixel player data was not found");
+        assertThatThrownBy(() -> context.client().getPlayer("missing-player"))
+                .isInstanceOf(HypixelDataNotFoundException.class);
+        context.server().verify();
+    }
+
+    @Test
+    void reportsWhenTheSkyBlockProfileIsMissing() {
+        TestContext context = testContext();
+        context.server().expect(queryParam("profile", "missing-profile"))
+                .andRespond(withSuccess(
+                        """
+                        {"success":true,"profile":null}
+                        """,
+                        MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> context.client().getSkyBlockProfileProgress(
+                "0123456789abcdef0123456789abcdef",
+                "missing-profile"))
+                .isInstanceOf(HypixelDataNotFoundException.class)
+                .hasMessage("SkyBlock profile was not found");
+        context.server().verify();
+    }
+
+    @Test
+    void returnsAnEmptyListWhenProfilesAreUnavailable() {
+        TestContext context = testContext();
+        context.server().expect(queryParam("uuid", "private-player"))
+                .andRespond(withSuccess(
+                        """
+                        {"success":true,"profiles":null}
+                        """,
+                        MediaType.APPLICATION_JSON));
+        context.server().expect(queryParam("uuid", "private-player"))
+                .andRespond(withSuccess(
+                        """
+                        {"success":true,"profiles":null}
+                        """,
+                        MediaType.APPLICATION_JSON));
+
+        assertThat(context.client().getSkyBlockProfiles("private-player")).isEmpty();
+        assertThat(context.client().getSkyBlockProfiles("private-player")).isEmpty();
+        context.server().verify();
+    }
+
+    @Test
+    void reportsWhenThePlayerIsNotAProfileMember() {
+        TestContext context = testContext();
+        context.server().expect(queryParam("profile", "other-profile"))
+                .andRespond(withSuccess(
+                        """
+                        {
+                          "success": true,
+                          "profile": {
+                            "profile_id": "other-profile",
+                            "members": {}
+                          }
+                        }
+                        """,
+                        MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> context.client().getSkyBlockProfileProgress(
+                "0123456789abcdef0123456789abcdef",
+                "other-profile"))
+                .isInstanceOf(HypixelDataNotFoundException.class)
+                .hasMessage("That player is not a member of this SkyBlock profile");
         context.server().verify();
     }
 

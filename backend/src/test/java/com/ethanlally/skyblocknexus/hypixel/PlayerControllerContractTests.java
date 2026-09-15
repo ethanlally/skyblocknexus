@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ethanlally.skyblocknexus.player.PlayerController;
+import com.ethanlally.skyblocknexus.http.UpstreamErrorHandler;
+import com.ethanlally.skyblocknexus.http.UpstreamResponseException;
 import com.ethanlally.skyblocknexus.player.PlayerSummary;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockCollectionProgress;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockCurrencySummary;
@@ -15,6 +17,7 @@ import com.ethanlally.skyblocknexus.skyblock.SkyBlockProfileProgress;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockProfileSummary;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockSkillProgress;
 import java.util.List;
+import java.net.SocketTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.client.ResourceAccessException;
 
 @ExtendWith(MockitoExtension.class)
 class PlayerControllerContractTests {
@@ -37,7 +41,8 @@ class PlayerControllerContractTests {
         mockMvc = MockMvcBuilders.standaloneSetup(new PlayerController(hypixelClient))
                 .setControllerAdvice(
                         new HypixelNotFoundHandler(),
-                        new HypixelRateLimitHandler())
+                        new HypixelRateLimitHandler(),
+                        new UpstreamErrorHandler())
                 .build();
     }
 
@@ -117,5 +122,27 @@ class PlayerControllerContractTests {
                 .andExpect(jsonPath("$.retryAfterSeconds").value(17))
                 .andExpect(jsonPath("$.message").value(
                         "Hypixel's request limit has been reached. Try again in 17 seconds."));
+    }
+
+    @Test
+    void upstreamFailuresReturnBadGatewayInsteadOfAnEmptyProfileList() throws Exception {
+        when(hypixelClient.getSkyBlockProfiles("player-uuid"))
+                .thenThrow(new UpstreamResponseException("Hypixel"));
+
+        mockMvc.perform(get("/api/players/player-uuid/profiles"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.message").value(
+                        "Hypixel returned an unsuccessful or malformed response. Please try again later."));
+    }
+
+    @Test
+    void upstreamTimeoutsReturnGatewayTimeout() throws Exception {
+        when(hypixelClient.getSkyBlockProfiles("player-uuid"))
+                .thenThrow(new ResourceAccessException("Read failed", new SocketTimeoutException()));
+
+        mockMvc.perform(get("/api/players/player-uuid/profiles"))
+                .andExpect(status().isGatewayTimeout())
+                .andExpect(jsonPath("$.message").value(
+                        "The upstream service took too long to respond. Please try again."));
     }
 }

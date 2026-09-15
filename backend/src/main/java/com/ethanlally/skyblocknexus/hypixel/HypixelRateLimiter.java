@@ -15,6 +15,7 @@ public class HypixelRateLimiter {
 
     private final Clock clock;
     private RateLimitWindow currentWindow;
+    private int inFlight;
 
     public HypixelRateLimiter() {
         this(Clock.systemUTC());
@@ -25,13 +26,9 @@ public class HypixelRateLimiter {
     }
 
     public synchronized void acquire() {
+        discardExpiredWindow();
         if (currentWindow == null) {
-            return;
-        }
-
-        Instant now = clock.instant();
-        if (!now.isBefore(currentWindow.resetsAt())) {
-            currentWindow = null;
+            inFlight++;
             return;
         }
 
@@ -42,6 +39,11 @@ public class HypixelRateLimiter {
         currentWindow = new RateLimitWindow(
                 currentWindow.remaining() - 1,
                 currentWindow.resetsAt());
+        inFlight++;
+    }
+
+    public synchronized void release() {
+        inFlight--;
     }
 
     public synchronized void update(HttpHeaders headers) {
@@ -51,17 +53,31 @@ public class HypixelRateLimiter {
             return;
         }
 
-        currentWindow = new RateLimitWindow(
-                remaining,
-                clock.instant().plusSeconds(resetSeconds));
+        discardExpiredWindow();
+        // Other requests may not yet be reflected in this response's headers.
+        int available = Math.max(0, remaining - Math.max(0, inFlight - 1));
+        Instant resetsAt = clock.instant().plusSeconds(resetSeconds);
+        if (currentWindow != null) {
+            // A late response must never refund reservations or shorten a cooldown.
+            available = Math.min(available, currentWindow.remaining());
+            if (currentWindow.resetsAt().isAfter(resetsAt)) {
+                resetsAt = currentWindow.resetsAt();
+            }
+        }
+        currentWindow = new RateLimitWindow(available, resetsAt);
     }
 
     public synchronized HypixelRateLimitException rejectedByUpstream(HttpHeaders headers) {
+        discardExpiredWindow();
         update(headers);
 
-        long retryAfterSeconds = currentWindow == null
-                ? retryAfterFallback(headers)
-                : secondsUntil(currentWindow.resetsAt());
+        Long retryAfter = parseNonNegativeLong(headers.getFirst(HttpHeaders.RETRY_AFTER));
+        Long resetSeconds = parseNonNegativeLong(headers.getFirst(RESET_HEADER));
+        long retryAfterSeconds = retryAfter != null ? Math.max(1, retryAfter)
+                : resetSeconds != null ? Math.max(1, resetSeconds) : DEFAULT_RETRY_SECONDS;
+        if (currentWindow != null) {
+            retryAfterSeconds = Math.max(retryAfterSeconds, secondsUntil(currentWindow.resetsAt()));
+        }
         currentWindow = new RateLimitWindow(
                 0,
                 clock.instant().plusSeconds(retryAfterSeconds));
@@ -69,9 +85,10 @@ public class HypixelRateLimiter {
         return new HypixelRateLimitException(retryAfterSeconds);
     }
 
-    private long retryAfterFallback(HttpHeaders headers) {
-        Long retryAfter = parseNonNegativeLong(headers.getFirst(HttpHeaders.RETRY_AFTER));
-        return retryAfter == null ? DEFAULT_RETRY_SECONDS : Math.max(1, retryAfter);
+    private void discardExpiredWindow() {
+        if (currentWindow != null && !clock.instant().isBefore(currentWindow.resetsAt())) {
+            currentWindow = null;
+        }
     }
 
     private long secondsUntil(Instant resetAt) {

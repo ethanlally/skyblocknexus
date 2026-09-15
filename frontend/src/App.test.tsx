@@ -1,5 +1,6 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App.tsx'
@@ -82,6 +83,120 @@ afterEach(() => {
 })
 
 describe('player lookup flow', () => {
+  it('refreshes the current profile when the same username is submitted again', async () => {
+    const fetchMock = installProfileFlow(profileProgress)
+    const router = renderApp('/players/ExamplePlayer/profiles/apple-profile')
+    await screen.findByText('123 coins')
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Find player' }))
+
+    await screen.findByText('123 coins')
+    expect(requestedUrls(fetchMock).filter((url) => url.endsWith('/progress'))).toHaveLength(2)
+    expect(router.state.location.pathname).toBe('/players/ExamplePlayer/profiles/apple-profile')
+  })
+
+  it('retries a rate-limited profile request on a same-username submission', async () => {
+    let progressRequests = 0
+    installFetch(async (url) => {
+      if (url.startsWith('/api/minecraft/players/')) {
+        return jsonResponse({ uuid: player.uuid, username: player.displayName })
+      }
+      if (url === '/api/players/player-uuid') return jsonResponse(player)
+      if (url.endsWith('/profiles')) return jsonResponse(profiles)
+      if (url.endsWith('/progress')) {
+        progressRequests++
+        return progressRequests === 1
+          ? jsonResponse({ retryAfterSeconds: 1 }, 429)
+          : jsonResponse(profileProgress)
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    renderApp('/players/ExamplePlayer/profiles/apple-profile')
+    await screen.findByText(/Hypixel's request limit has been reached/)
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Find player' }))
+
+    expect(await screen.findByText('123 coins')).toBeInTheDocument()
+    expect(progressRequests).toBe(2)
+    expect(screen.queryByText(/Hypixel's request limit has been reached/)).not.toBeInTheDocument()
+  })
+
+  it('loads a direct profile URL under StrictMode effect replay', async () => {
+    installProfileFlow(profileProgress)
+    renderApp('/players/ExamplePlayer/profiles/apple-profile', true)
+    expect(await screen.findByText('123 coins')).toBeInTheDocument()
+    expect(screen.queryByText('Searching...')).not.toBeInTheDocument()
+  })
+
+  it('ignores an old profile response even when fetch completes after being aborted', async () => {
+    let finishOldRequest: (response: Response) => void = () => { throw new Error('No pending request') }
+    let oldRequestStarted = false
+    installFetch(async (url) => {
+      if (url.startsWith('/api/minecraft/players/')) {
+        return jsonResponse({ uuid: player.uuid, username: player.displayName })
+      }
+      if (url === '/api/players/player-uuid') return jsonResponse(player)
+      if (url.endsWith('/profiles')) {
+        return jsonResponse([...profiles, { ...profiles[0], profileId: 'pear-profile', name: 'Pear', selected: false }])
+      }
+      if (url.endsWith('/apple-profile/progress')) {
+        oldRequestStarted = true
+        return new Promise<Response>((resolve) => { finishOldRequest = resolve })
+      }
+      if (url.endsWith('/pear-profile/progress')) {
+        return jsonResponse({ ...profileProgress, profileId: 'pear-profile', currencies: { ...profileProgress.currencies, coinPurse: 999 } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    renderApp('/players/ExamplePlayer/profiles/apple-profile')
+    await waitFor(() => expect(oldRequestStarted).toBe(true))
+    await userEvent.setup().click(screen.getByRole('link', { name: /Pear.*Profile/ }))
+    await screen.findByText('999 coins')
+
+    await act(async () => { finishOldRequest(await jsonResponse(profileProgress)) })
+
+    expect(screen.getByText('999 coins')).toBeInTheDocument()
+    expect(screen.queryByText('123 coins')).not.toBeInTheDocument()
+  })
+
+  it('selects the default profile when returning to the same player without a profile ID', async () => {
+    installProfileFlow(profileProgress)
+    const router = renderApp('/players/ExamplePlayer/profiles/apple-profile')
+    await screen.findByText('123 coins')
+
+    await act(async () => { await router.navigate('/players/ExamplePlayer') })
+
+    await waitFor(() => expect(router.state.location.pathname)
+      .toBe('/players/ExamplePlayer/profiles/apple-profile'))
+    expect(await screen.findByText('123 coins')).toBeInTheDocument()
+  })
+
+  it('respects a profile route chosen while the player lookup is still pending', async () => {
+    let finishProfiles: (response: Response) => void = () => { throw new Error('No pending request') }
+    let profilesRequested = false
+    installFetch(async (url) => {
+      if (url.startsWith('/api/minecraft/players/')) {
+        return jsonResponse({ uuid: player.uuid, username: player.displayName })
+      }
+      if (url === '/api/players/player-uuid') return jsonResponse(player)
+      if (url.endsWith('/profiles')) {
+        profilesRequested = true
+        return new Promise<Response>((resolve) => { finishProfiles = resolve })
+      }
+      if (url.endsWith('/pear-profile/progress')) return jsonResponse({ ...profileProgress, profileId: 'pear-profile' })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    const router = renderApp('/players/ExamplePlayer')
+    await waitFor(() => expect(profilesRequested).toBe(true))
+    await act(async () => { await router.navigate('/players/ExamplePlayer/profiles/pear-profile') })
+    await act(async () => {
+      finishProfiles(await jsonResponse([...profiles, { ...profiles[0], profileId: 'pear-profile', name: 'Pear', selected: false }]))
+    })
+
+    expect(await screen.findByText('123 coins')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/players/ExamplePlayer/profiles/pear-profile')
+  })
+
   it('loads a player and navigates to the selected profile', async () => {
     const fetchMock = installProfileFlow(profileProgress)
     const router = renderApp('/players/ExamplePlayer')
@@ -209,12 +324,12 @@ describe('player lookup flow', () => {
   })
 })
 
-function renderApp(initialPath: string) {
+function renderApp(initialPath: string, strict = false) {
   const router = createMemoryRouter(
     [{ path: '*', element: <App /> }],
     { initialEntries: [initialPath] },
   )
-  render(<RouterProvider router={router} />)
+  render(strict ? <StrictMode><RouterProvider router={router} /></StrictMode> : <RouterProvider router={router} />)
   return router
 }
 

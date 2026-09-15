@@ -7,7 +7,10 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 import java.nio.charset.StandardCharsets;
+import com.ethanlally.skyblocknexus.http.UpstreamResponseException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -15,6 +18,20 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 class MinecraftClientTests {
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "{}", "{\"id\":123}", "{\"id\":\"\"}"})
+    void malformedLookupResponsesAreUpstreamFailures(String body) {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        MinecraftClient client = new MinecraftClient(builder.baseUrl("https://api.minecraftservices.com").build());
+        server.expect(requestTo("https://api.minecraftservices.com/minecraft/profile/lookup/name/Notch"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.resolveUsername("Notch"))
+                .isInstanceOf(UpstreamResponseException.class);
+        server.verify();
+    }
 
     @Test
     void resolvesAUsernameToAUuid() throws Exception {

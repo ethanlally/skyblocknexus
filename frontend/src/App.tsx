@@ -85,6 +85,7 @@ function PlayerPage() {
   const progressRequest = useRef<AbortController | null>(null)
   const [username, setUsername] = useState(routeUsername ?? '')
   const [player, setPlayer] = useState<Player | null>(null)
+  const [resolvedUsername, setResolvedUsername] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<SkyBlockProfile[]>([])
   const [profileProgress, setProfileProgress] = useState<ProfileProgress | null>(null)
   const [progressError, setProgressError] = useState('')
@@ -101,6 +102,7 @@ function PlayerPage() {
     setLoading(true)
     setError('')
     setPlayer(null)
+    setResolvedUsername(null)
     setProfiles([])
     setProfileProgress(null)
     setProgressError('')
@@ -120,6 +122,7 @@ function PlayerPage() {
       }
 
       const minecraftPlayer = await minecraftResponse.json() as MinecraftPlayer
+      if (controller.signal.aborted) return
       const playerResponse = await fetch(
         `/api/players/${minecraftPlayer.uuid}`,
         { signal: controller.signal },
@@ -128,6 +131,7 @@ function PlayerPage() {
         playerResponse,
         'Could not find that player',
       )
+      if (controller.signal.aborted) return
 
       const profilesResponse = await fetch(
         `/api/players/${minecraftPlayer.uuid}/profiles`,
@@ -137,18 +141,13 @@ function PlayerPage() {
         profilesResponse,
         'Could not load SkyBlock profiles',
       )
+      if (controller.signal.aborted) return
 
       setPlayer(foundPlayer)
       setProfiles(foundProfiles)
-
-      if (!profileId) {
-        const defaultProfile = foundProfiles.find((profile) => profile.selected) ?? foundProfiles[0]
-        if (defaultProfile) {
-          navigate(profilePath(requestedUsername, defaultProfile.profileId), { replace: true })
-        }
-      }
+      setResolvedUsername(requestedUsername.toLowerCase())
     } catch (requestError) {
-      if (isAbortError(requestError)) return
+      if (controller.signal.aborted || isAbortError(requestError)) return
       setError(requestError instanceof Error ? requestError.message : 'Something went wrong')
     } finally {
       if (playerRequest.current === controller) {
@@ -156,7 +155,7 @@ function PlayerPage() {
         setLoading(false)
       }
     }
-  }, [navigate, profileId])
+  }, [])
 
   useEffect(() => {
     if (!routeUsername) {
@@ -167,6 +166,7 @@ function PlayerPage() {
       loadedUsername.current = null
       setUsername('')
       setPlayer(null)
+      setResolvedUsername(null)
       setProfiles([])
       setProfileProgress(null)
       setProgressError('')
@@ -183,6 +183,14 @@ function PlayerPage() {
     loadedUsername.current = normalizedUsername
     void loadPlayer(routeUsername)
   }, [loadPlayer, routeUsername])
+
+  useEffect(() => {
+    if (!routeUsername || profileId || resolvedUsername !== routeUsername.toLowerCase()) return
+    const defaultProfile = profiles.find((profile) => profile.selected) ?? profiles[0]
+    if (defaultProfile) {
+      void navigate(profilePath(routeUsername, defaultProfile.profileId), { replace: true })
+    }
+  }, [navigate, profileId, profiles, resolvedUsername, routeUsername])
 
   useEffect(() => {
     const profileExists = profiles.some((profile) => profile.profileId === profileId)
@@ -210,9 +218,11 @@ function PlayerPage() {
         response,
         'Could not load profile progress',
       ))
-      .then(setProfileProgress)
+      .then((progress) => {
+        if (!controller.signal.aborted) setProfileProgress(progress)
+      })
       .catch((requestError: unknown) => {
-        if (isAbortError(requestError)) return
+        if (controller.signal.aborted || isAbortError(requestError)) return
         setProgressError(
           requestError instanceof Error ? requestError.message : 'Could not load profile progress',
         )
@@ -245,13 +255,8 @@ function PlayerPage() {
     const requestedUsername = username.trim()
 
     if (routeUsername?.toLowerCase() === requestedUsername.toLowerCase()) {
-      const defaultProfile = profiles.find((profile) => profile.selected) ?? profiles[0]
-      if (defaultProfile) {
-        navigate(profilePath(requestedUsername, defaultProfile.profileId))
-      } else {
-        loadedUsername.current = requestedUsername.toLowerCase()
-        await loadPlayer(requestedUsername)
-      }
+      loadedUsername.current = requestedUsername.toLowerCase()
+      await loadPlayer(requestedUsername)
       return
     }
 

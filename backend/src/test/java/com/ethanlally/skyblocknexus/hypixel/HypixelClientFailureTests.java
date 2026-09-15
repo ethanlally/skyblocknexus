@@ -3,12 +3,16 @@ package com.ethanlally.skyblocknexus.hypixel;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 import java.net.SocketTimeoutException;
+import com.ethanlally.skyblocknexus.http.UpstreamResponseException;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -19,6 +23,56 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 class HypixelClientFailureTests {
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"success\":false}",
+            "{\"success\":true}",
+            "{\"profiles\":[]}",
+            "{\"success\":\"true\",\"profiles\":[]}",
+            "{\"success\":true,\"profiles\":{}}",
+            "{\"success\":true,\"profiles\":[{}]}",
+            "{\"success\":true,\"profiles\":[{\"profile_id\":123}]}",
+            "null"
+    })
+    void rejectsUnsuccessfulOrMalformedProfileListsWithoutCaching(String body) {
+        TestContext context = testContext();
+        context.server().expect(queryParam("uuid", "example-player"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+        context.server().expect(queryParam("uuid", "example-player"))
+                .andRespond(withSuccess("{\"success\":true,\"profiles\":[]}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> context.client().getSkyBlockProfiles("example-player"))
+                .isInstanceOf(UpstreamResponseException.class);
+        assertThat(context.client().getSkyBlockProfiles("example-player")).isEmpty();
+        context.server().verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"success\":false}", "{\"success\":true}",
+            "{\"success\":true,\"player\":[]}"})
+    void playerApiFailuresAreNotReportedAsMissingPlayers(String body) {
+        TestContext context = testContext();
+        context.server().expect(queryParam("uuid", "example-player"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> context.client().getPlayer("example-player"))
+                .isInstanceOf(UpstreamResponseException.class);
+        context.server().verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"success\":false}", "{\"success\":true}",
+            "{\"success\":true,\"profile\":{}}",
+            "{\"success\":true,\"profile\":{\"members\":[]}}",
+            "{\"success\":true,\"profile\":{\"members\":{\"example-player\":123}}}"})
+    void malformedProfileDataIsNotReportedAsMissingMembership(String body) {
+        TestContext context = testContext();
+        context.server().expect(queryParam("profile", "example-profile"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> context.client().getSkyBlockProfileProgress("example-player", "example-profile"))
+                .isInstanceOf(UpstreamResponseException.class);
+        context.server().verify();
+    }
 
     @Test
     void preservesTheInvalidApiKeyResponse() throws Exception {
@@ -163,6 +217,47 @@ class HypixelClientFailureTests {
                 .isInstanceOf(ResourceAccessException.class)
                 .hasRootCauseInstanceOf(SocketTimeoutException.class);
         context.server().verify();
+    }
+
+    @Test
+    void malformedResourcesAreNotCached() throws Exception {
+        TestContext context = testContext();
+        context.server().expect(queryParam("profile", "example-profile"))
+                .andRespond(withSuccess(fixture("skyblock/profile-progress-success.json"), MediaType.APPLICATION_JSON));
+        context.server().expect(requestTo("https://api.hypixel.net/v2/resources/skyblock/skills"))
+                .andRespond(withSuccess("{\"success\":true,\"skills\":[]}", MediaType.APPLICATION_JSON));
+        context.server().expect(requestTo("https://api.hypixel.net/v2/resources/skyblock/skills"))
+                .andRespond(withSuccess(fixture("skyblock/skills-resource.json"), MediaType.APPLICATION_JSON));
+        context.server().expect(requestTo("https://api.hypixel.net/v2/resources/skyblock/collections"))
+                .andRespond(withSuccess(fixture("skyblock/collections-resource.json"), MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> context.client().getSkyBlockProfileProgress(
+                "0123456789abcdef0123456789abcdef", "example-profile"))
+                .isInstanceOf(UpstreamResponseException.class);
+        assertThat(context.client().getSkyBlockProfileProgress(
+                "0123456789abcdef0123456789abcdef", "example-profile").skills()).hasSize(2);
+        context.server().verify();
+    }
+
+    @Test
+    void failedRequestsDoNotLeavePhantomInFlightReservations() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        HypixelRateLimiter limiter = new HypixelRateLimiter();
+        HypixelClient client = new HypixelClient("test-key", builder.build(), limiter);
+        server.expect(queryParam("uuid", "first-player")).andRespond(request -> {
+            throw new SocketTimeoutException("Read timed out");
+        });
+        server.expect(queryParam("uuid", "second-player"))
+                .andRespond(withSuccess("{\"success\":true,\"player\":null}", MediaType.APPLICATION_JSON)
+                        .header("RateLimit-Remaining", "1").header("RateLimit-Reset", "30"));
+        server.expect(queryParam("uuid", "third-player"))
+                .andRespond(withSuccess("{\"success\":true,\"player\":null}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.getPlayer("first-player")).isInstanceOf(ResourceAccessException.class);
+        assertThatThrownBy(() -> client.getPlayer("second-player")).isInstanceOf(HypixelDataNotFoundException.class);
+        assertThatThrownBy(() -> client.getPlayer("third-player")).isInstanceOf(HypixelDataNotFoundException.class);
+        server.verify();
     }
 
     private TestContext testContext() {

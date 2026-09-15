@@ -60,3 +60,10 @@ retry delay instead of sending another request to Hypixel.
 Successful Hypixel responses are cached in memory for 60 seconds, up to 100
 recent entries. The cache reduces repeated API requests and clears whenever the
 backend restarts.
+
+Submit the same username again to refresh the current profile or retry a failed
+lookup. Refreshes still use the backend cache until its 60-second TTL expires.
+Outgoing Minecraft and Hypixel requests have a 5-second connection timeout and
+a 10-second read timeout. Upstream failures return HTTP 502, timeouts return
+HTTP 504, and missing profile data keeps its existing unavailable or
+HTTP 404 response.

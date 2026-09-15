@@ -1,5 +1,7 @@
 package com.ethanlally.skyblocknexus.hypixel;
 
+import com.ethanlally.skyblocknexus.http.UpstreamClients;
+import com.ethanlally.skyblocknexus.http.UpstreamResponseException;
 import com.ethanlally.skyblocknexus.player.PlayerSummary;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockCollectionProgress;
 import com.ethanlally.skyblocknexus.skyblock.SkyBlockCurrencySummary;
@@ -20,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.JsonNode;
 
 @Component
@@ -36,9 +39,7 @@ public class HypixelClient {
             @Value("${hypixel.api-key:}") String apiKey,
             HypixelRateLimiter rateLimiter,
             HypixelResponseCache responseCache) {
-        this(apiKey, RestClient.builder()
-                .baseUrl("https://api.hypixel.net")
-                .build(), rateLimiter, responseCache);
+        this(apiKey, UpstreamClients.create("https://api.hypixel.net"), rateLimiter, responseCache);
     }
 
     HypixelClient(String apiKey, RestClient restClient, HypixelRateLimiter rateLimiter) {
@@ -77,16 +78,9 @@ public class HypixelClient {
         if (profiles == null || profiles.isNull()) {
             return List.of();
         }
-        if (!profiles.isArray()) {
-            throw new IllegalStateException("Hypixel profile response was malformed");
-        }
-
         List<SkyBlockProfileSummary> summaries = new ArrayList<>();
         for (JsonNode profile : profiles) {
             String profileId = profile.path("profile_id").asString();
-            if (profileId.isBlank()) {
-                throw new IllegalStateException("Hypixel profile did not include an ID");
-            }
 
             summaries.add(new SkyBlockProfileSummary(
                     profileId,
@@ -311,6 +305,7 @@ public class HypixelClient {
         JsonNode response = request(restClient.get()
                 .uri(uriBuilder -> uriBuilder.path(path).queryParam(queryParameter, value).build())
                 .header("API-Key", apiKey));
+        validateResponse(path, response);
         if (isCacheableResponse(path, response)) {
             responseCache.put(cacheKey, response);
         }
@@ -324,17 +319,60 @@ public class HypixelClient {
         }
 
         JsonNode response = request(restClient.get().uri(path));
+        validateResponse(path, response);
         if (isCacheableResponse(path, response)) {
             responseCache.put(path, response);
         }
         return response;
     }
 
-    private boolean isCacheableResponse(String path, JsonNode response) {
-        if (response == null || !response.path("success").asBoolean(true)) {
-            return false;
+    private void validateResponse(String path, JsonNode response) {
+        if (response == null || !response.isObject()
+                || !response.path("success").isBoolean() || !response.path("success").asBoolean()) {
+            throw new UpstreamResponseException("Hypixel");
         }
 
+        String field = switch (path) {
+            case "/v2/player" -> "player";
+            case "/v2/skyblock/profiles" -> "profiles";
+            case "/v2/skyblock/profile" -> "profile";
+            case "/v2/resources/skyblock/skills" -> "skills";
+            case "/v2/resources/skyblock/collections" -> "collections";
+            default -> throw new IllegalArgumentException("Unsupported Hypixel endpoint");
+        };
+        JsonNode data = response.get(field);
+        if (data == null) {
+            throw new UpstreamResponseException("Hypixel");
+        }
+        if (data.isNull() && (field.equals("player") || field.equals("profiles") || field.equals("profile"))) {
+            return;
+        }
+        if (field.equals("profiles")) {
+            if (!data.isArray()) {
+                throw new UpstreamResponseException("Hypixel");
+            }
+            for (JsonNode profile : data) {
+                if (!profile.isObject() || !profile.path("profile_id").isString()
+                        || profile.path("profile_id").asString().isBlank()) {
+                    throw new UpstreamResponseException("Hypixel");
+                }
+            }
+        } else if (!data.isObject()) {
+            throw new UpstreamResponseException("Hypixel");
+        }
+        if (field.equals("profile")) {
+            if (!data.path("members").isObject()) {
+                throw new UpstreamResponseException("Hypixel");
+            }
+            for (JsonNode member : data.path("members")) {
+                if (!member.isObject() && !member.isNull()) {
+                    throw new UpstreamResponseException("Hypixel");
+                }
+            }
+        }
+    }
+
+    private boolean isCacheableResponse(String path, JsonNode response) {
         return switch (path) {
             case "/v2/player" -> response.path("player").isObject();
             case "/v2/skyblock/profiles" -> response.path("profiles").isArray();
@@ -346,16 +384,25 @@ public class HypixelClient {
     private JsonNode request(RestClient.RequestHeadersSpec<?> requestSpec) {
         rateLimiter.acquire();
 
-        ResponseEntity<JsonNode> response = requestSpec.retrieve()
-                .onStatus(
-                        status -> status == HttpStatus.TOO_MANY_REQUESTS,
-                        (request, upstreamResponse) -> {
-                            throw rateLimiter.rejectedByUpstream(upstreamResponse.getHeaders());
-                        })
-                .toEntity(JsonNode.class);
+        try {
+            ResponseEntity<JsonNode> response = requestSpec.retrieve()
+                    .onStatus(
+                            status -> status == HttpStatus.TOO_MANY_REQUESTS,
+                            (request, upstreamResponse) -> {
+                                throw rateLimiter.rejectedByUpstream(upstreamResponse.getHeaders());
+                            })
+                    .toEntity(JsonNode.class);
 
-        rateLimiter.update(response.getHeaders());
-        return response.getBody();
+            rateLimiter.update(response.getHeaders());
+            return response.getBody();
+        } catch (RestClientResponseException exception) {
+            if (exception.getResponseHeaders() != null) {
+                rateLimiter.update(exception.getResponseHeaders());
+            }
+            throw exception;
+        } finally {
+            rateLimiter.release();
+        }
     }
 
     private record LevelProgress(
@@ -365,12 +412,12 @@ public class HypixelClient {
 
     private Long optionalLong(JsonNode node, String field) {
         JsonNode value = node.get(field);
-        return value == null || value.isNull() ? null : value.asLong();
+        return value == null || !value.isNumber() ? null : value.asLong();
     }
 
     private Double optionalDouble(JsonNode node, String field) {
         JsonNode value = node.get(field);
-        return value == null || value.isNull() ? null : value.asDouble();
+        return value == null || !value.isNumber() ? null : value.asDouble();
     }
 
     private String optionalString(JsonNode node, String field) {

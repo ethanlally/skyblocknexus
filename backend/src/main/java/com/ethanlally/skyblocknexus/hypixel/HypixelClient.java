@@ -1,5 +1,6 @@
 package com.ethanlally.skyblocknexus.hypixel;
 
+import com.ethanlally.skyblocknexus.bazaar.BazaarSnapshot;
 import com.ethanlally.skyblocknexus.http.UpstreamClients;
 import com.ethanlally.skyblocknexus.http.UpstreamResponseException;
 import com.ethanlally.skyblocknexus.player.PlayerSummary;
@@ -70,6 +71,21 @@ public class HypixelClient {
                 player.path("displayname").asString("Unknown"),
                 optionalLong(player, "firstLogin"),
                 optionalLong(player, "lastLogin"));
+    }
+
+    public BazaarSnapshot getBazaarProducts() {
+        String path = "/v2/skyblock/bazaar";
+        JsonNode cachedResponse = responseCache.get(path);
+        if (cachedResponse != null) {
+            return BazaarResponseParser.parse(cachedResponse);
+        }
+
+        // Bazaar is public: do not require or send the player's API key.
+        JsonNode response = request(restClient.get().uri(path));
+        BazaarSnapshot snapshot = BazaarResponseParser.parse(response);
+        // Parse before caching so a malformed snapshot does not poison later lookups.
+        responseCache.put(path, response);
+        return snapshot;
     }
 
     public List<SkyBlockProfileSummary> getSkyBlockProfiles(String uuid) {

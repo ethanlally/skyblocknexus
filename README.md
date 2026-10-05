@@ -37,6 +37,30 @@ pnpm dev
 
 The frontend will be available at `http://localhost:5173`.
 
+## Bazaar API
+
+With the backend running, open `http://localhost:8080/api/bazaar/products` or run:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/api/bazaar/products
+```
+
+This returns Hypixel's `lastUpdated` timestamp (Unix milliseconds) and a
+`products` list sorted by product ID. Each product includes `productId`,
+`buyPrice`, `sellPrice`, `buyVolume`, `sellVolume`, `buyMovingWeek`,
+`sellMovingWeek`, `buyOrders`, and `sellOrders` from Hypixel's `quick_status`.
+Prices keep Hypixel's names and are weighted summary prices, not guaranteed
+execution prices; `movingWeek` includes the previous seven days plus live state.
+See the [Hypixel Bazaar documentation](https://api.hypixel.net/#tag/SkyBlock/paths/~1v2~1skyblock~1bazaar/get).
+
+Bazaar requests do not require or send an API key. They reuse the existing
+60-second in-memory cache, timeouts, and shared local rate-limit guard. Failed
+or malformed snapshots are not cached. The timestamp is Hypixel's snapshot
+time, not the time you requested it; cached results are not real-time quotes.
+The fixture used by tests is synthetic, not a captured market snapshot.
+The Bazaar UI, calculated metrics, database, and historical collection come in
+later commits; the existing profile page is unchanged.
+
 ## Checks
 
 Run the backend tests from `backend`:

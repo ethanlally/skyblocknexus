@@ -1,0 +1,38 @@
+{
+  "success": true,
+  "lastUpdated": 1791238200000,
+  "products": {
+    "WHEAT": {
+      "product_id": "WHEAT",
+      "sell_summary": [],
+      "buy_summary": [],
+      "quick_status": {
+        "productId": "WHEAT",
+        "buyPrice": 6.25,
+        "sellPrice": 5.5,
+        "buyVolume": 3200000000,
+        "sellVolume": 700,
+        "buyMovingWeek": 5000000000,
+        "sellMovingWeek": 4000000000,
+        "buyOrders": 14,
+        "sellOrders": 9
+      }
+    },
+    "INK_SACK:3": {
+      "product_id": "INK_SACK:3",
+      "sell_summary": [],
+      "buy_summary": [],
+      "quick_status": {
+        "productId": "INK_SACK:3",
+        "buyPrice": 0,
+        "sellPrice": 0,
+        "buyVolume": 0,
+        "sellVolume": 0,
+        "buyMovingWeek": 0,
+        "sellMovingWeek": 0,
+        "buyOrders": 0,
+        "sellOrders": 0
+      }
+    }
+  }
+}
